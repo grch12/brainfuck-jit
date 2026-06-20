@@ -16,11 +16,23 @@ code_add_start:
   incb (%r12)
 code_add_end:
 
+.global code_add_n_start
+.global code_add_n_end
+code_add_n_start:
+  addb $0, (%r12)
+code_add_n_end:
+
 .global code_sub_start
 .global code_sub_end
 code_sub_start:
   decb (%r12)
 code_sub_end:
+
+.global code_sub_n_start
+.global code_sub_n_end
+code_sub_n_start:
+  subb $0, (%r12)
+code_sub_n_end:
 
 .global code_ptr_left_start
 .global code_ptr_left_end
@@ -28,11 +40,27 @@ code_ptr_left_start:
   decq %r12
 code_ptr_left_end:
 
+.global code_ptr_left_n_start
+.global code_ptr_left_n_end
+code_ptr_left_n_start:
+  # This assembles to:
+  # REX.W + 81 /5 id
+  # SUB r/m64, imm32
+  # forcing a 32-bit immediate
+  subq $0x12345678, %r12
+code_ptr_left_n_end:
+
 .global code_ptr_right_start
 .global code_ptr_right_end
 code_ptr_right_start:
   incq %r12
 code_ptr_right_end:
+
+.global code_ptr_right_n_start
+.global code_ptr_right_n_end
+code_ptr_right_n_start:
+  addq $0x12345678, %r12
+code_ptr_right_n_end:
 
 .global code_output_start
 .global code_output_end
@@ -58,14 +86,14 @@ code_input_end:
 .global code_lbracket_end
 code_lbracket_start:
   cmpb $0, (%r12)
-  je 0x00000000
+  je 0x12345678
 code_lbracket_end:
 
 .global code_rbracket_start
 .global code_rbracket_end
 code_rbracket_start:
   cmpb $0, (%r12)
-  jne 0x00000000
+  jne 0x12345678
 code_rbracket_end:
 
 .global code_epilog_start

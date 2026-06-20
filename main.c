@@ -1,3 +1,4 @@
+#include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -5,19 +6,29 @@
 #include <string.h>
 #include <sys/mman.h>
 
-#define CODE_BUF_SIZE 4096
-#define TAPE_SIZE 4096
+// If you got segfaults, it's probably because the buffer is too small
+// Try increasing these values
+#define CODE_BUF_SIZE 1048576  // 1MB should be enough for most programs
+#define TAPE_SIZE 1048576
 
 #define MAX_BRACKET_DEPTH 256
 
 extern char code_add_start;
 extern char code_add_end;
+extern char code_add_n_start;
+extern char code_add_n_end;
 extern char code_sub_start;
 extern char code_sub_end;
+extern char code_sub_n_start;
+extern char code_sub_n_end;
 extern char code_ptr_left_start;
 extern char code_ptr_left_end;
+extern char code_ptr_left_n_start;
+extern char code_ptr_left_n_end;
 extern char code_ptr_right_start;
 extern char code_ptr_right_end;
+extern char code_ptr_right_n_start;
+extern char code_ptr_right_n_end;
 extern char code_output_start;
 extern char code_output_end;
 extern char code_input_start;
@@ -33,9 +44,13 @@ extern char code_epilog_start;
 extern char code_epilog_end;
 
 void emit_code_add(char* codebuf, size_t* pc);
+void emit_code_add_n(char* codebuf, size_t* pc, uint8_t n);
 void emit_code_sub(char* codebuf, size_t* pc);
+void emit_code_sub_n(char* codebuf, size_t* pc, uint8_t n);
 void emit_code_ptr_left(char* codebuf, size_t* pc);
+void emit_code_ptr_left_n(char* codebuf, size_t* pc, uint32_t n);
 void emit_code_ptr_right(char* codebuf, size_t* pc);
+void emit_code_ptr_right_n(char* codebuf, size_t* pc, uint32_t n);
 void emit_code_output(char* codebuf, size_t* pc);
 void emit_code_input(char* codebuf, size_t* pc);
 void emit_code_lbracket(char* codebuf, size_t* pc, size_t* bracket_stack,
@@ -55,32 +70,73 @@ bool emit_code(char* codebuf, const char* source) {
 
   for (size_t i = 0; source[i] != '\0'; i++) {
     switch (source[i]) {
-      case '+':
-        emit_code_add(codebuf, &pc);
+      case '+': {
+        uint8_t n = 1;
+        // merge consecutive '+'s into a single add instruction
+        while (source[i + 1] == '+') {
+          n++;
+          i++;
+        }
+        if (n > 1)
+          emit_code_add_n(codebuf, &pc, n);
+        else
+          emit_code_add(codebuf, &pc);
         break;
-      case '-':
-        emit_code_sub(codebuf, &pc);
+      }
+      case '-': {
+        uint8_t n = 1;
+        while (source[i + 1] == '-') {
+          n++;
+          i++;
+        }
+        if (n > 1)
+          emit_code_sub_n(codebuf, &pc, n);
+        else
+          emit_code_sub(codebuf, &pc);
         break;
-      case '<':
-        emit_code_ptr_left(codebuf, &pc);
+      }
+      case '<': {
+        uint32_t n = 1;
+        while (source[i + 1] == '<') {
+          n++;
+          i++;
+        }
+        if (n > 1)
+          emit_code_ptr_left_n(codebuf, &pc, n);
+        else
+          emit_code_ptr_left(codebuf, &pc);
         break;
-      case '>':
-        emit_code_ptr_right(codebuf, &pc);
+      }
+      case '>': {
+        uint32_t n = 1;
+        while (source[i + 1] == '>') {
+          n++;
+          i++;
+        }
+        if (n > 1)
+          emit_code_ptr_right_n(codebuf, &pc, n);
+        else
+          emit_code_ptr_right(codebuf, &pc);
         break;
-      case '.':
+      }
+      case '.': {
         emit_code_output(codebuf, &pc);
         break;
-      case ',':
+      }
+      case ',': {
         emit_code_input(codebuf, &pc);
         break;
-      case '[':
+      }
+      case '[': {
         emit_code_lbracket(codebuf, &pc, bracket_stack, &brackets);
         break;
-      case ']':
+      }
+      case ']': {
         bool result =
             emit_code_rbracket(codebuf, &pc, bracket_stack, &brackets);
         if (!result) return false;
         break;
+      }
       default:
         break;
     }
@@ -99,10 +155,26 @@ void emit_code_add(char* codebuf, size_t* pc) {
   *pc += code_add_sz;
 }
 
+void emit_code_add_n(char* codebuf, size_t* pc, uint8_t n) {
+  size_t code_add_n_sz = &code_add_n_end - &code_add_n_start;
+  memcpy(codebuf + *pc, &code_add_n_start, code_add_n_sz);
+  *pc += code_add_n_sz;
+  int8_t* imm8 = (int8_t*)(codebuf + *pc - 1);
+  *imm8 = n;
+}
+
 void emit_code_sub(char* codebuf, size_t* pc) {
   size_t code_sub_sz = &code_sub_end - &code_sub_start;
   memcpy(codebuf + *pc, &code_sub_start, code_sub_sz);
   *pc += code_sub_sz;
+}
+
+void emit_code_sub_n(char* codebuf, size_t* pc, uint8_t n) {
+  size_t code_sub_n_sz = &code_sub_n_end - &code_sub_n_start;
+  memcpy(codebuf + *pc, &code_sub_n_start, code_sub_n_sz);
+  *pc += code_sub_n_sz;
+  int8_t* imm8 = (int8_t*)(codebuf + *pc - 1);
+  *imm8 = n;
 }
 
 void emit_code_ptr_left(char* codebuf, size_t* pc) {
@@ -111,10 +183,26 @@ void emit_code_ptr_left(char* codebuf, size_t* pc) {
   *pc += code_ptr_left_sz;
 }
 
+void emit_code_ptr_left_n(char* codebuf, size_t* pc, uint32_t n) {
+  size_t code_ptr_left_n_sz = &code_ptr_left_n_end - &code_ptr_left_n_start;
+  memcpy(codebuf + *pc, &code_ptr_left_n_start, code_ptr_left_n_sz);
+  *pc += code_ptr_left_n_sz;
+  int32_t* imm32 = (int32_t*)(codebuf + *pc - 4);
+  *imm32 = n;
+}
+
 void emit_code_ptr_right(char* codebuf, size_t* pc) {
   size_t code_ptr_right_sz = &code_ptr_right_end - &code_ptr_right_start;
   memcpy(codebuf + *pc, &code_ptr_right_start, code_ptr_right_sz);
   *pc += code_ptr_right_sz;
+}
+
+void emit_code_ptr_right_n(char* codebuf, size_t* pc, uint32_t n) {
+  size_t code_ptr_right_n_sz = &code_ptr_right_n_end - &code_ptr_right_n_start;
+  memcpy(codebuf + *pc, &code_ptr_right_n_start, code_ptr_right_n_sz);
+  *pc += code_ptr_right_n_sz;
+  int32_t* imm32 = (int32_t*)(codebuf + *pc - 4);
+  *imm32 = n;
 }
 
 void emit_code_output(char* codebuf, size_t* pc) {
@@ -167,50 +255,95 @@ void emit_code_epilog(char* codebuf, size_t* pc) {
   *pc += code_epilog_sz;
 }
 
-int main(int argc, char* argv[]) {
-  if (argc < 2) {
-    puts("Brainfuck JIT compiler");
-    puts("Usage:");
-    printf("%s <code>\n", argv[0]);
-    return 1;
-  }
-
+bool execute_bf_code(const char* source) {
   char* codebuf = mmap(NULL, CODE_BUF_SIZE, PROT_READ | PROT_WRITE,
                        MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-  if (codebuf == MAP_FAILED) {
-    perror("mmap");
-    return 1;
-  }
+  if (codebuf == MAP_FAILED) return false;
 
   void* tape = calloc(1, TAPE_SIZE);
   if (tape == NULL) {
-    perror("calloc");
     munmap(codebuf, CODE_BUF_SIZE);
-    return 1;
+    return false;
   }
 
-  if (!emit_code(codebuf, argv[1])) {
-    fprintf(stderr, "Unbalanced brackets\n");
-    munmap(codebuf, CODE_BUF_SIZE);
-    free(tape);
-    return 1;
+  bool result = emit_code(codebuf, source);
+  if (result) {
+    // Make the code executable
+    mprotect(codebuf, CODE_BUF_SIZE, PROT_READ | PROT_EXEC);
+
+    // When compiled with -Wpedantic, the following line causes a warning:
+    // ISO C forbids conversion of object pointer to function pointer type
+    // Suppress the warning by using __extension__
+    __extension__ void (*code)(void*) = (void (*)(void*))codebuf;
+
+    code(tape);
+  } else {
+    fprintf(stderr, "Compilation failed, bracket mismatch\n");
   }
 
   // FILE* fp = fopen("dump.bin", "wb");
-  // fwrite(codebuf, 1, CODE_BUF_SIZE, fp);
+  // fwrite(codebuf, CODE_BUF_SIZE, 1, fp);
   // fclose(fp);
-
-  mprotect(codebuf, CODE_BUF_SIZE, PROT_READ | PROT_EXEC);
-
-  // When compiled with -Wpedantic, the following line causes a warning:
-  // ISO C forbids conversion of object pointer to function pointer type
-  // Suppress the warning by using __extension__
-  __extension__ void (*code)(void*) = (void (*)(void*))codebuf;
-
-  code(tape);
 
   free(tape);
   munmap(codebuf, CODE_BUF_SIZE);
+  return result;
+}
 
-  return 0;
+int main(int argc, char* argv[]) {
+  // Display help message
+  if (argc > 1 &&
+      (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0)) {
+    printf("Brainfuck JIT Compiler\n");
+    printf("Usage:\n");
+    printf("  %s [<FILE>]\n", argv[0]);
+    return 0;
+  }
+
+  // Execute specified file
+  if (argc > 1) {
+    FILE* file = fopen(argv[1], "r");
+    if (file == NULL) {
+      fprintf(stderr, "Failed to open file: %s\n", argv[1]);
+      return 1;
+    }
+
+    long file_size = 0;
+    fseek(file, 0, SEEK_END);
+    file_size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+
+    char* source = malloc(file_size);
+    if (source == NULL) {
+      fclose(file);
+      perror("malloc");
+      return 1;
+    }
+
+    fread(source, file_size, 1, file);
+    fclose(file);
+
+    bool result = execute_bf_code(source);
+    free(source);
+
+    if (!result) {
+      if (errno != 0) perror("Execution failed");
+      return 1;
+    } else {
+      return 0;
+    }
+  }
+
+  // No file specified, enter interactive mode
+  printf("Brainfuck JIT Compiler\n");
+  printf("Press Ctrl+C to exit\n");
+  while (true) {
+    printf("\n> ");
+    char line[1024];
+    if (fgets(line, sizeof(line), stdin) == NULL) break;
+    bool result = execute_bf_code(line);
+    if (!result) {
+      if (errno != 0) perror("Execution failed");
+    }
+  }
 }
