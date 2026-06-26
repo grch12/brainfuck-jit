@@ -13,6 +13,8 @@
 
 #define MAX_BRACKET_DEPTH 256
 
+// Declarations of symbols from code.s
+// Type is irrelevant, it's just to make the linker happy
 extern char code_add_start;
 extern char code_add_end;
 extern char code_add_n_start;
@@ -21,12 +23,18 @@ extern char code_sub_start;
 extern char code_sub_end;
 extern char code_sub_n_start;
 extern char code_sub_n_end;
+extern char code_ptr_left_start_safe;
 extern char code_ptr_left_start;
 extern char code_ptr_left_end;
+extern char code_ptr_left_n_start_safe;
+extern char code_ptr_left_n_safe_imm;
 extern char code_ptr_left_n_start;
 extern char code_ptr_left_n_end;
+extern char code_ptr_right_start_safe;
 extern char code_ptr_right_start;
 extern char code_ptr_right_end;
+extern char code_ptr_right_n_start_safe;
+extern char code_ptr_right_n_safe_imm;
 extern char code_ptr_right_n_start;
 extern char code_ptr_right_n_end;
 extern char code_output_start;
@@ -38,8 +46,10 @@ extern char code_lbracket_end;
 extern char code_rbracket_start;
 extern char code_rbracket_end;
 
+extern char code_prolog_start_safe;
 extern char code_prolog_start;
 extern char code_prolog_end;
+extern char code_epilog_start_safe;
 extern char code_epilog_start;
 extern char code_epilog_end;
 
@@ -47,10 +57,12 @@ void emit_code_add(char* codebuf, size_t* pc);
 void emit_code_add_n(char* codebuf, size_t* pc, uint8_t n);
 void emit_code_sub(char* codebuf, size_t* pc);
 void emit_code_sub_n(char* codebuf, size_t* pc, uint8_t n);
-void emit_code_ptr_left(char* codebuf, size_t* pc);
-void emit_code_ptr_left_n(char* codebuf, size_t* pc, uint32_t n);
-void emit_code_ptr_right(char* codebuf, size_t* pc);
-void emit_code_ptr_right_n(char* codebuf, size_t* pc, uint32_t n);
+void emit_code_ptr_left(char* codebuf, size_t* pc, bool safe_mode);
+void emit_code_ptr_left_n(char* codebuf, size_t* pc, uint32_t n,
+                          bool safe_mode);
+void emit_code_ptr_right(char* codebuf, size_t* pc, bool safe_mode);
+void emit_code_ptr_right_n(char* codebuf, size_t* pc, uint32_t n,
+                           bool safe_mode);
 void emit_code_output(char* codebuf, size_t* pc);
 void emit_code_input(char* codebuf, size_t* pc);
 void emit_code_lbracket(char* codebuf, size_t* pc, size_t* bracket_stack,
@@ -58,15 +70,15 @@ void emit_code_lbracket(char* codebuf, size_t* pc, size_t* bracket_stack,
 bool emit_code_rbracket(char* codebuf, size_t* pc, size_t* bracket_stack,
                         size_t* brackets);
 
-void emit_code_prolog(char* codebuf, size_t* pc);
-void emit_code_epilog(char* codebuf, size_t* pc);
+void emit_code_prolog(char* codebuf, size_t* pc, bool safe_mode);
+void emit_code_epilog(char* codebuf, size_t* pc, bool safe_mode);
 
-bool emit_code(char* codebuf, const char* source) {
+bool emit_code(char* codebuf, const char* source, bool safe_mode) {
   size_t pc = 0;  // program counter
   size_t bracket_stack[MAX_BRACKET_DEPTH];
   size_t brackets = 0;
 
-  emit_code_prolog(codebuf, &pc);
+  emit_code_prolog(codebuf, &pc, safe_mode);
 
   for (size_t i = 0; source[i] != '\0'; i++) {
     switch (source[i]) {
@@ -102,9 +114,9 @@ bool emit_code(char* codebuf, const char* source) {
           i++;
         }
         if (n > 1)
-          emit_code_ptr_left_n(codebuf, &pc, n);
+          emit_code_ptr_left_n(codebuf, &pc, n, safe_mode);
         else
-          emit_code_ptr_left(codebuf, &pc);
+          emit_code_ptr_left(codebuf, &pc, safe_mode);
         break;
       }
       case '>': {
@@ -114,9 +126,9 @@ bool emit_code(char* codebuf, const char* source) {
           i++;
         }
         if (n > 1)
-          emit_code_ptr_right_n(codebuf, &pc, n);
+          emit_code_ptr_right_n(codebuf, &pc, n, safe_mode);
         else
-          emit_code_ptr_right(codebuf, &pc);
+          emit_code_ptr_right(codebuf, &pc, safe_mode);
         break;
       }
       case '.': {
@@ -144,7 +156,7 @@ bool emit_code(char* codebuf, const char* source) {
 
   if (brackets != 0) return false;
 
-  emit_code_epilog(codebuf, &pc);
+  emit_code_epilog(codebuf, &pc, safe_mode);
 
   return true;
 }
@@ -177,32 +189,68 @@ void emit_code_sub_n(char* codebuf, size_t* pc, uint8_t n) {
   *imm8 = n;
 }
 
-void emit_code_ptr_left(char* codebuf, size_t* pc) {
-  size_t code_ptr_left_sz = &code_ptr_left_end - &code_ptr_left_start;
-  memcpy(codebuf + *pc, &code_ptr_left_start, code_ptr_left_sz);
+void emit_code_ptr_left(char* codebuf, size_t* pc, bool safe_mode) {
+  size_t code_ptr_left_sz;
+  if (safe_mode) {
+    code_ptr_left_sz = &code_ptr_left_end - &code_ptr_left_start_safe;
+    memcpy(codebuf + *pc, &code_ptr_left_start_safe, code_ptr_left_sz);
+  } else {
+    code_ptr_left_sz = &code_ptr_left_end - &code_ptr_left_start;
+    memcpy(codebuf + *pc, &code_ptr_left_start, code_ptr_left_sz);
+  }
   *pc += code_ptr_left_sz;
 }
 
-void emit_code_ptr_left_n(char* codebuf, size_t* pc, uint32_t n) {
-  size_t code_ptr_left_n_sz = &code_ptr_left_n_end - &code_ptr_left_n_start;
-  memcpy(codebuf + *pc, &code_ptr_left_n_start, code_ptr_left_n_sz);
+void emit_code_ptr_left_n(char* codebuf, size_t* pc, uint32_t n,
+                          bool safe_mode) {
+  size_t code_ptr_left_n_sz;
+  if (safe_mode) {
+    code_ptr_left_n_sz = &code_ptr_left_n_end - &code_ptr_left_n_start_safe;
+    memcpy(codebuf + *pc, &code_ptr_left_n_start_safe, code_ptr_left_n_sz);
+    int32_t* lea_imm32 =
+        (int32_t*)(codebuf + *pc +
+                   (&code_ptr_left_n_safe_imm - &code_ptr_left_n_start_safe) -
+                   4);
+    *lea_imm32 = -n;
+  } else {
+    code_ptr_left_n_sz = &code_ptr_left_n_end - &code_ptr_left_n_start;
+    memcpy(codebuf + *pc, &code_ptr_left_n_start, code_ptr_left_n_sz);
+  }
   *pc += code_ptr_left_n_sz;
-  int32_t* imm32 = (int32_t*)(codebuf + *pc - 4);
-  *imm32 = n;
+  int32_t* sub_imm32 = (int32_t*)(codebuf + *pc - 4);
+  *sub_imm32 = n;
 }
 
-void emit_code_ptr_right(char* codebuf, size_t* pc) {
-  size_t code_ptr_right_sz = &code_ptr_right_end - &code_ptr_right_start;
-  memcpy(codebuf + *pc, &code_ptr_right_start, code_ptr_right_sz);
+void emit_code_ptr_right(char* codebuf, size_t* pc, bool safe_mode) {
+  size_t code_ptr_right_sz;
+  if (safe_mode) {
+    code_ptr_right_sz = &code_ptr_right_end - &code_ptr_right_start_safe;
+    memcpy(codebuf + *pc, &code_ptr_right_start_safe, code_ptr_right_sz);
+  } else {
+    code_ptr_right_sz = &code_ptr_right_end - &code_ptr_right_start;
+    memcpy(codebuf + *pc, &code_ptr_right_start, code_ptr_right_sz);
+  }
   *pc += code_ptr_right_sz;
 }
 
-void emit_code_ptr_right_n(char* codebuf, size_t* pc, uint32_t n) {
-  size_t code_ptr_right_n_sz = &code_ptr_right_n_end - &code_ptr_right_n_start;
-  memcpy(codebuf + *pc, &code_ptr_right_n_start, code_ptr_right_n_sz);
+void emit_code_ptr_right_n(char* codebuf, size_t* pc, uint32_t n,
+                           bool safe_mode) {
+  size_t code_ptr_right_n_sz;
+  if (safe_mode) {
+    code_ptr_right_n_sz = &code_ptr_right_n_end - &code_ptr_right_n_start_safe;
+    memcpy(codebuf + *pc, &code_ptr_right_n_start_safe, code_ptr_right_n_sz);
+    int32_t* lea_imm32 =
+        (int32_t*)(codebuf + *pc +
+                   (&code_ptr_right_n_safe_imm - &code_ptr_right_n_start_safe) -
+                   4);
+    *lea_imm32 = n;
+  } else {
+    code_ptr_right_n_sz = &code_ptr_right_n_end - &code_ptr_right_n_start;
+    memcpy(codebuf + *pc, &code_ptr_right_n_start, code_ptr_right_n_sz);
+  }
   *pc += code_ptr_right_n_sz;
-  int32_t* imm32 = (int32_t*)(codebuf + *pc - 4);
-  *imm32 = n;
+  int32_t* add_imm32 = (int32_t*)(codebuf + *pc - 4);
+  *add_imm32 = n;
 }
 
 void emit_code_output(char* codebuf, size_t* pc) {
@@ -243,19 +291,36 @@ bool emit_code_rbracket(char* codebuf, size_t* pc, size_t* bracket_stack,
   return true;
 }
 
-void emit_code_prolog(char* codebuf, size_t* pc) {
-  size_t code_prolog_sz = &code_prolog_end - &code_prolog_start;
-  memcpy(codebuf + *pc, &code_prolog_start, code_prolog_sz);
+void emit_code_prolog(char* codebuf, size_t* pc, bool safe_mode) {
+  size_t code_prolog_sz;
+  if (safe_mode) {
+    code_prolog_sz = &code_prolog_end - &code_prolog_start_safe;
+    memcpy(codebuf + *pc, &code_prolog_start_safe, code_prolog_sz);
+    int32_t* imm32 =
+        (int32_t*)(codebuf + *pc + (&code_prolog_start - &code_prolog_start_safe) -
+                   4);
+    *imm32 = TAPE_SIZE;
+  } else {
+    code_prolog_sz = &code_prolog_end - &code_prolog_start;
+    memcpy(codebuf + *pc, &code_prolog_start, code_prolog_sz);
+  }
   *pc += code_prolog_sz;
 }
 
-void emit_code_epilog(char* codebuf, size_t* pc) {
-  size_t code_epilog_sz = &code_epilog_end - &code_epilog_start;
-  memcpy(codebuf + *pc, &code_epilog_start, code_epilog_sz);
+void emit_code_epilog(char* codebuf, size_t* pc, bool safe_mode) {
+  size_t code_epilog_sz;
+  if (safe_mode) {
+    code_epilog_sz = &code_epilog_end - &code_epilog_start_safe;
+    memcpy(codebuf + *pc, &code_epilog_start_safe, code_epilog_sz);
+  } else {
+    code_epilog_sz = &code_epilog_end - &code_epilog_start;
+    memcpy(codebuf + *pc, &code_epilog_start, code_epilog_sz);
+  }
   *pc += code_epilog_sz;
 }
 
-bool execute_bf_code(const char* source) {
+bool execute_bf_code(const char* source, bool safe_mode,
+                     const char* dump_name) {
   char* codebuf = mmap(NULL, CODE_BUF_SIZE, PROT_READ | PROT_WRITE,
                        MAP_SHARED | MAP_ANONYMOUS, -1, 0);
   if (codebuf == MAP_FAILED) return false;
@@ -266,7 +331,14 @@ bool execute_bf_code(const char* source) {
     return false;
   }
 
-  bool result = emit_code(codebuf, source);
+  bool result = emit_code(codebuf, source, safe_mode);
+  if (dump_name) {
+    FILE* dump = fopen(dump_name, "w");
+    if (dump) {
+      fwrite(codebuf, CODE_BUF_SIZE, 1, dump);
+      fclose(dump);
+    }
+  }
   if (result) {
     // Make the code executable
     mprotect(codebuf, CODE_BUF_SIZE, PROT_READ | PROT_EXEC);
@@ -281,30 +353,63 @@ bool execute_bf_code(const char* source) {
     fprintf(stderr, "Compilation failed, bracket mismatch\n");
   }
 
-  // FILE* fp = fopen("dump.bin", "wb");
-  // fwrite(codebuf, CODE_BUF_SIZE, 1, fp);
-  // fclose(fp);
-
   free(tape);
   munmap(codebuf, CODE_BUF_SIZE);
   return result;
+}
+
+void print_usage_and_exit(const char* name, bool error) {
+  FILE* stream = error ? stderr : stdout;
+  int code = error ? 1 : 0;
+  fprintf(stream, "Brainfuck JIT Compiler\n");
+  fprintf(stream, "Usage:\n");
+  fprintf(stream, "  %s [<FILE>] [options]\n", name);
+  fprintf(stream, "Available options:\n");
+  fprintf(stream, "  -d <DUMP>   Dump compiled machine code to <DUMP>\n");
+  fprintf(stream, "  -s          Safe mode (perform bounds checking)\n");
+  fprintf(stream, "  -h, --help  Display this help message\n");
+  exit(code);
 }
 
 int main(int argc, char* argv[]) {
   // Display help message
   if (argc > 1 &&
       (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0)) {
-    printf("Brainfuck JIT Compiler\n");
-    printf("Usage:\n");
-    printf("  %s [<FILE>]\n", argv[0]);
-    return 0;
+    print_usage_and_exit(argv[0], false);
+  }
+
+  char* source_name = NULL;
+  char* dump_name = NULL;
+  bool safe_mode = false;
+
+  // Parse command line
+  for (int i = 1; i < argc; i++) {
+    if (argv[i][0] != '-') {
+      if (!source_name)
+        source_name = argv[i];
+      else
+        print_usage_and_exit(argv[0], true);
+    } else {
+      bool next_arg = false;
+      for (int j = 1; argv[i][j] != '\0'; j++) {
+        if (argv[i][j] == 's') {
+          safe_mode = true;
+        } else if (argv[i][j] == 'd' && i + 1 < argc) {
+          dump_name = argv[i + 1];
+          next_arg = true;
+        } else {
+          print_usage_and_exit(argv[0], true);
+        }
+      }
+      if (next_arg) i++;
+    }
   }
 
   // Execute specified file
-  if (argc > 1) {
-    FILE* file = fopen(argv[1], "r");
+  if (source_name) {
+    FILE* file = fopen(source_name, "r");
     if (file == NULL) {
-      fprintf(stderr, "Failed to open file: %s\n", argv[1]);
+      fprintf(stderr, "Failed to open file: %s\n", source_name);
       return 1;
     }
 
@@ -320,10 +425,16 @@ int main(int argc, char* argv[]) {
       return 1;
     }
 
-    fread(source, file_size, 1, file);
+    size_t count = fread(source, file_size, 1, file);
+    if (count != 1) {
+      free(source);
+      fclose(file);
+      perror("fread");
+      return 1;
+    }
     fclose(file);
 
-    bool result = execute_bf_code(source);
+    bool result = execute_bf_code(source, safe_mode, dump_name);
     free(source);
 
     if (!result) {
@@ -332,18 +443,19 @@ int main(int argc, char* argv[]) {
     } else {
       return 0;
     }
-  }
-
-  // No file specified, enter interactive mode
-  printf("Brainfuck JIT Compiler\n");
-  printf("Press Ctrl+C to exit\n");
-  while (true) {
-    printf("\n> ");
-    char line[1024];
-    if (fgets(line, sizeof(line), stdin) == NULL) break;
-    bool result = execute_bf_code(line);
-    if (!result) {
-      if (errno != 0) perror("Execution failed");
+  } else {
+    // No file specified, enter interactive mode
+    printf("Brainfuck JIT Compiler\n");
+    printf("Press Ctrl+C to exit\n");
+    while (true) {
+      printf("\n> ");
+      fflush(stdout);
+      char line[1024];
+      if (fgets(line, sizeof(line), stdin) == NULL) break;
+      bool result = execute_bf_code(line, safe_mode, dump_name);
+      if (!result) {
+        if (errno != 0) perror("Execution failed");
+      }
     }
   }
 }

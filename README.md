@@ -1,6 +1,6 @@
 # brainfuck-jit
 
-This is a handwritten Brainfuck JIT compiler for x86-64 Linux. Zero dependencies. Directly compiles Brainfuck code to x86-64 machine code. No IR, LLVM, libgccjit, etc.
+This is a handwritten Brainfuck JIT compiler for x86-64 Linux. Zero dependencies. Directly compiles Brainfuck code into x86-64 machine code. No IR, LLVM, libgccjit, etc.
 
 ## Usage
 
@@ -11,6 +11,11 @@ To use the compiler, you can provide a Brainfuck source file as an argument when
 ```
 
 Alternatively, you can enter interactive mode by running the program without any arguments. In this mode, you can enter Brainfuck code one line at a time and see the output.
+
+Available options are:
+
+- `-s`: Safe mode (performs bounds checking)
+- `-d <DUMP>`: Dump compiled machine code to `<DUMP>`
 
 ## Compilation
 
