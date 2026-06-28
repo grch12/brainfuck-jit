@@ -3,10 +3,13 @@
 # %r12 = tape pointer
 # according to SysV ABI, it is callee-saved
 
-.global code_prolog_start_safe
 .global code_prolog_start
 .global code_prolog_end
-code_prolog_start_safe:
+.global code_prolog_end_safe
+code_prolog_start:
+  push %r12 # saves %r12
+  movq %rdi, %r12 # moves the address of the tape into %r12
+code_prolog_end:
   # In safe mode
   # %r13 = pointer to the start of the tape
   # %r14 = pointer to the end of the tape
@@ -15,10 +18,7 @@ code_prolog_start_safe:
   movq %rdi, %r13 # moves the address of the tape into %r13
   # this dummy number will be replaced by TAPE_SIZE
   leaq 0x12345678(%r13), %r14
-code_prolog_start:
-  push %r12 # saves %r12
-  movq %rdi, %r12 # moves the address of the tape into %r12
-code_prolog_end:
+code_prolog_end_safe:
 
 .global code_add_start
 .global code_add_end
@@ -60,7 +60,7 @@ code_ptr_left_end:
 .global code_ptr_left_n_start
 .global code_ptr_left_n_end
 code_ptr_left_n_start_safe:
-  # Using %r11, a temporary register to hold the address
+  # Using %r11, a temporary register to hold the address - no need to save
   leaq 0x12345678(%r12), %r11
 code_ptr_left_n_safe_imm:
   cmpq %r13, %r11
