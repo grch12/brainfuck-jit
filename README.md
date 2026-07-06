@@ -35,8 +35,8 @@ The compiled program will execute the Brainfuck code and output the result. If a
 
 |   | brainfuck-jit | brainfuck-jit (safe mode) | [qdb](https://brainfuck.org/qdb.c) | [jitbf](https://github.com/none-None1/jitbf) |
 |---|---|---|---|---|
-| [hanoi.bf](https://esoteric.sange.fi/brainfuck/bf-source/prog/hanoi.bf) | 4.646s | **4.558s** | 11.397s | 6.747s |
-| [mandelbrot.b](https://esoteric.sange.fi/brainfuck/bf-source/prog/mandelbrot.b) | **1.223s** | 1.484s | 9.871s | 2.391s |
+| [hanoi.bf](https://esoteric.sange.fi/brainfuck/bf-source/prog/hanoi.bf) | **0.197s** | 0.222s | 10.914s | 6.305s |
+| [mandelbrot.b](https://esoteric.sange.fi/brainfuck/bf-source/prog/mandelbrot.b) | **1.223s** | 1.388s | 9.619s | 2.601s |
 
  - brainfuck-jit: This project
  - qdb: A simple interpreter implemented in C

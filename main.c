@@ -44,6 +44,8 @@ extern char code_lbracket_start;
 extern char code_lbracket_end;
 extern char code_rbracket_start;
 extern char code_rbracket_end;
+extern char code_zero_cell_start;
+extern char code_zero_cell_end;
 
 extern char code_prolog_start;
 extern char code_prolog_end;
@@ -75,9 +77,19 @@ EmitCodeResult emit_code_lbracket(char* codebuf, size_t* pc,
                                   size_t* bracket_stack, size_t* brackets);
 EmitCodeResult emit_code_rbracket(char* codebuf, size_t* pc,
                                   size_t* bracket_stack, size_t* brackets);
+EmitCodeResult emit_code_zero_cell(char* codebuf, size_t* pc);
 
 void emit_code_prolog(char* codebuf, size_t* pc, bool safe_mode);
 EmitCodeResult emit_code_epilog(char* codebuf, size_t* pc, bool safe_mode);
+
+// A simple helper function to copy instructions,
+// avoiding some weird bugs with memcpy from certain libcs (like musl).
+// The previous implementation, which used memcpy,
+// crashed for no reason on Alpine while working fine on Ubuntu.
+// There are more efficient ways to do this, but I'm lazy.
+inline void cpinstr(char* dst, char* src, size_t n) {
+  for (size_t i = 0; i < n; i++) dst[i] = src[i];
+}
 
 EmitCodeResult emit_code(char* codebuf, const char* source, bool safe_mode) {
   size_t pc = 0;  // program counter
@@ -151,6 +163,16 @@ EmitCodeResult emit_code(char* codebuf, const char* source, bool safe_mode) {
         break;
       }
       case '[': {
+        // A simple optimization that greatly improves performance:
+        // [-] and [+] are idioms for zeroing the cell
+        // If the next char is '-' or '+' and the next char after that is ']',
+        // then we just emit a `mov` instruction instead of a loop.
+        if ((source[i + 1] == '-' || source[i + 1] == '+') &&
+            source[i + 2] == ']') {
+          result = emit_code_zero_cell(codebuf, &pc);
+          i += 2;
+          break;
+        }
         result = emit_code_lbracket(codebuf, &pc, bracket_stack, &brackets);
         break;
       }
@@ -174,7 +196,7 @@ EmitCodeResult emit_code(char* codebuf, const char* source, bool safe_mode) {
 EmitCodeResult emit_code_add(char* codebuf, size_t* pc) {
   size_t code_add_sz = &code_add_end - &code_add_start;
   if (*pc + code_add_sz >= CODE_BUF_SIZE) return CodeBufTooSmall;
-  memcpy(codebuf + *pc, &code_add_start, code_add_sz);
+  cpinstr(codebuf + *pc, &code_add_start, code_add_sz);
   *pc += code_add_sz;
   return Success;
 }
@@ -182,7 +204,7 @@ EmitCodeResult emit_code_add(char* codebuf, size_t* pc) {
 EmitCodeResult emit_code_add_n(char* codebuf, size_t* pc, uint8_t n) {
   size_t code_add_n_sz = &code_add_n_end - &code_add_n_start;
   if (*pc + code_add_n_sz >= CODE_BUF_SIZE) return CodeBufTooSmall;
-  memcpy(codebuf + *pc, &code_add_n_start, code_add_n_sz);
+  cpinstr(codebuf + *pc, &code_add_n_start, code_add_n_sz);
   *pc += code_add_n_sz;
   int8_t* imm8 = (int8_t*)(codebuf + *pc - 1);
   *imm8 = n;
@@ -192,7 +214,7 @@ EmitCodeResult emit_code_add_n(char* codebuf, size_t* pc, uint8_t n) {
 EmitCodeResult emit_code_sub(char* codebuf, size_t* pc) {
   size_t code_sub_sz = &code_sub_end - &code_sub_start;
   if (*pc + code_sub_sz >= CODE_BUF_SIZE) return CodeBufTooSmall;
-  memcpy(codebuf + *pc, &code_sub_start, code_sub_sz);
+  cpinstr(codebuf + *pc, &code_sub_start, code_sub_sz);
   *pc += code_sub_sz;
   return Success;
 }
@@ -200,7 +222,7 @@ EmitCodeResult emit_code_sub(char* codebuf, size_t* pc) {
 EmitCodeResult emit_code_sub_n(char* codebuf, size_t* pc, uint8_t n) {
   size_t code_sub_n_sz = &code_sub_n_end - &code_sub_n_start;
   if (*pc + code_sub_n_sz >= CODE_BUF_SIZE) return CodeBufTooSmall;
-  memcpy(codebuf + *pc, &code_sub_n_start, code_sub_n_sz);
+  cpinstr(codebuf + *pc, &code_sub_n_start, code_sub_n_sz);
   *pc += code_sub_n_sz;
   int8_t* imm8 = (int8_t*)(codebuf + *pc - 1);
   *imm8 = n;
@@ -212,11 +234,11 @@ EmitCodeResult emit_code_ptr_left(char* codebuf, size_t* pc, bool safe_mode) {
   if (safe_mode) {
     code_ptr_left_sz = &code_ptr_left_end - &code_ptr_left_start_safe;
     if (*pc + code_ptr_left_sz >= CODE_BUF_SIZE) return CodeBufTooSmall;
-    memcpy(codebuf + *pc, &code_ptr_left_start_safe, code_ptr_left_sz);
+    cpinstr(codebuf + *pc, &code_ptr_left_start_safe, code_ptr_left_sz);
   } else {
     code_ptr_left_sz = &code_ptr_left_end - &code_ptr_left_start;
     if (*pc + code_ptr_left_sz >= CODE_BUF_SIZE) return CodeBufTooSmall;
-    memcpy(codebuf + *pc, &code_ptr_left_start, code_ptr_left_sz);
+    cpinstr(codebuf + *pc, &code_ptr_left_start, code_ptr_left_sz);
   }
   *pc += code_ptr_left_sz;
   return Success;
@@ -228,7 +250,7 @@ EmitCodeResult emit_code_ptr_left_n(char* codebuf, size_t* pc, uint32_t n,
   if (safe_mode) {
     code_ptr_left_n_sz = &code_ptr_left_n_end - &code_ptr_left_n_start_safe;
     if (*pc + code_ptr_left_n_sz >= CODE_BUF_SIZE) return CodeBufTooSmall;
-    memcpy(codebuf + *pc, &code_ptr_left_n_start_safe, code_ptr_left_n_sz);
+    cpinstr(codebuf + *pc, &code_ptr_left_n_start_safe, code_ptr_left_n_sz);
     int32_t* lea_imm32 =
         (int32_t*)(codebuf + *pc +
                    (&code_ptr_left_n_safe_imm - &code_ptr_left_n_start_safe) -
@@ -237,7 +259,7 @@ EmitCodeResult emit_code_ptr_left_n(char* codebuf, size_t* pc, uint32_t n,
   } else {
     code_ptr_left_n_sz = &code_ptr_left_n_end - &code_ptr_left_n_start;
     if (*pc + code_ptr_left_n_sz >= CODE_BUF_SIZE) return CodeBufTooSmall;
-    memcpy(codebuf + *pc, &code_ptr_left_n_start, code_ptr_left_n_sz);
+    cpinstr(codebuf + *pc, &code_ptr_left_n_start, code_ptr_left_n_sz);
   }
   *pc += code_ptr_left_n_sz;
   int32_t* sub_imm32 = (int32_t*)(codebuf + *pc - 4);
@@ -250,11 +272,11 @@ EmitCodeResult emit_code_ptr_right(char* codebuf, size_t* pc, bool safe_mode) {
   if (safe_mode) {
     code_ptr_right_sz = &code_ptr_right_end - &code_ptr_right_start_safe;
     if (*pc + code_ptr_right_sz >= CODE_BUF_SIZE) return CodeBufTooSmall;
-    memcpy(codebuf + *pc, &code_ptr_right_start_safe, code_ptr_right_sz);
+    cpinstr(codebuf + *pc, &code_ptr_right_start_safe, code_ptr_right_sz);
   } else {
     code_ptr_right_sz = &code_ptr_right_end - &code_ptr_right_start;
     if (*pc + code_ptr_right_sz >= CODE_BUF_SIZE) return CodeBufTooSmall;
-    memcpy(codebuf + *pc, &code_ptr_right_start, code_ptr_right_sz);
+    cpinstr(codebuf + *pc, &code_ptr_right_start, code_ptr_right_sz);
   }
   *pc += code_ptr_right_sz;
   return Success;
@@ -266,7 +288,7 @@ EmitCodeResult emit_code_ptr_right_n(char* codebuf, size_t* pc, uint32_t n,
   if (safe_mode) {
     code_ptr_right_n_sz = &code_ptr_right_n_end - &code_ptr_right_n_start_safe;
     if (*pc + code_ptr_right_n_sz >= CODE_BUF_SIZE) return CodeBufTooSmall;
-    memcpy(codebuf + *pc, &code_ptr_right_n_start_safe, code_ptr_right_n_sz);
+    cpinstr(codebuf + *pc, &code_ptr_right_n_start_safe, code_ptr_right_n_sz);
     int32_t* lea_imm32 =
         (int32_t*)(codebuf + *pc +
                    (&code_ptr_right_n_safe_imm - &code_ptr_right_n_start_safe) -
@@ -275,7 +297,7 @@ EmitCodeResult emit_code_ptr_right_n(char* codebuf, size_t* pc, uint32_t n,
   } else {
     code_ptr_right_n_sz = &code_ptr_right_n_end - &code_ptr_right_n_start;
     if (*pc + code_ptr_right_n_sz >= CODE_BUF_SIZE) return CodeBufTooSmall;
-    memcpy(codebuf + *pc, &code_ptr_right_n_start, code_ptr_right_n_sz);
+    cpinstr(codebuf + *pc, &code_ptr_right_n_start, code_ptr_right_n_sz);
   }
   *pc += code_ptr_right_n_sz;
   int32_t* add_imm32 = (int32_t*)(codebuf + *pc - 4);
@@ -286,7 +308,7 @@ EmitCodeResult emit_code_ptr_right_n(char* codebuf, size_t* pc, uint32_t n,
 EmitCodeResult emit_code_output(char* codebuf, size_t* pc) {
   size_t code_output_sz = &code_output_end - &code_output_start;
   if (*pc + code_output_sz >= CODE_BUF_SIZE) return CodeBufTooSmall;
-  memcpy(codebuf + *pc, &code_output_start, code_output_sz);
+  cpinstr(codebuf + *pc, &code_output_start, code_output_sz);
   *pc += code_output_sz;
   return Success;
 }
@@ -294,7 +316,7 @@ EmitCodeResult emit_code_output(char* codebuf, size_t* pc) {
 EmitCodeResult emit_code_input(char* codebuf, size_t* pc) {
   size_t code_input_sz = &code_input_end - &code_input_start;
   if (*pc + code_input_sz >= CODE_BUF_SIZE) return CodeBufTooSmall;
-  memcpy(codebuf + *pc, &code_input_start, code_input_sz);
+  cpinstr(codebuf + *pc, &code_input_start, code_input_sz);
   *pc += code_input_sz;
   return Success;
 }
@@ -306,7 +328,7 @@ EmitCodeResult emit_code_lbracket(char* codebuf, size_t* pc,
   }
   size_t code_lbracket_sz = &code_lbracket_end - &code_lbracket_start;
   if (*pc + code_lbracket_sz >= CODE_BUF_SIZE) return CodeBufTooSmall;
-  memcpy(codebuf + *pc, &code_lbracket_start, code_lbracket_sz);
+  cpinstr(codebuf + *pc, &code_lbracket_start, code_lbracket_sz);
   *pc += code_lbracket_sz;
   bracket_stack[(*brackets)++] = *pc;
   return Success;
@@ -316,7 +338,7 @@ EmitCodeResult emit_code_rbracket(char* codebuf, size_t* pc,
                                   size_t* bracket_stack, size_t* brackets) {
   size_t code_rbracket_sz = &code_rbracket_end - &code_rbracket_start;
   if (*pc + code_rbracket_sz >= CODE_BUF_SIZE) return CodeBufTooSmall;
-  memcpy(codebuf + *pc, &code_rbracket_start, code_rbracket_sz);
+  cpinstr(codebuf + *pc, &code_rbracket_start, code_rbracket_sz);
   *pc += code_rbracket_sz;
 
   if (*brackets <= 0) {
@@ -331,17 +353,25 @@ EmitCodeResult emit_code_rbracket(char* codebuf, size_t* pc,
   return Success;
 }
 
+EmitCodeResult emit_code_zero_cell(char* codebuf, size_t* pc) {
+  size_t code_zero_cell_sz = &code_zero_cell_end - &code_zero_cell_start;
+  if (*pc + code_zero_cell_sz >= CODE_BUF_SIZE) return CodeBufTooSmall;
+  cpinstr(codebuf + *pc, &code_zero_cell_start, code_zero_cell_sz);
+  *pc += code_zero_cell_sz;
+  return Success;
+}
+
 void emit_code_prolog(char* codebuf, size_t* pc, bool safe_mode) {
   size_t code_prolog_sz;
   if (safe_mode) {
     code_prolog_sz = &code_prolog_end_safe - &code_prolog_start;
-    memcpy(codebuf + *pc, &code_prolog_start, code_prolog_sz);
+    cpinstr(codebuf + *pc, &code_prolog_start, code_prolog_sz);
     int32_t* imm32 =
         (int32_t*)(codebuf + (&code_prolog_end_safe - &code_prolog_start) - 4);
     *imm32 = TAPE_SIZE;
   } else {
     code_prolog_sz = &code_prolog_end - &code_prolog_start;
-    memcpy(codebuf, &code_prolog_start, code_prolog_sz);
+    cpinstr(codebuf, &code_prolog_start, code_prolog_sz);
   }
   *pc += code_prolog_sz;
 }
@@ -351,11 +381,11 @@ EmitCodeResult emit_code_epilog(char* codebuf, size_t* pc, bool safe_mode) {
   if (safe_mode) {
     code_epilog_sz = &code_epilog_end - &code_epilog_start_safe;
     if (*pc + code_epilog_sz >= CODE_BUF_SIZE) return CodeBufTooSmall;
-    memcpy(codebuf + *pc, &code_epilog_start_safe, code_epilog_sz);
+    cpinstr(codebuf + *pc, &code_epilog_start_safe, code_epilog_sz);
   } else {
     code_epilog_sz = &code_epilog_end - &code_epilog_start;
     if (*pc + code_epilog_sz >= CODE_BUF_SIZE) return CodeBufTooSmall;
-    memcpy(codebuf + *pc, &code_epilog_start, code_epilog_sz);
+    cpinstr(codebuf + *pc, &code_epilog_start, code_epilog_sz);
   }
   *pc += code_epilog_sz;
   return Success;

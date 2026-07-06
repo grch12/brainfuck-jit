@@ -130,6 +130,12 @@ code_rbracket_start:
   jne 0x12345678
 code_rbracket_end:
 
+.global code_zero_cell_start
+.global code_zero_cell_end
+code_zero_cell_start:
+  movb $0, (%r12)
+code_zero_cell_end:
+
 .global code_epilog_start_safe
 .global code_epilog_start
 .global code_epilog_end
